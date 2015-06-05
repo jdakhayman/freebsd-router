@@ -1,0 +1,51 @@
+#!/bin/sh
+# Flush out the list before we begin.
+ipfw -q -f flush
+
+# Set rules command prefix
+cmd="ipfw add"
+pif="re1"          # interface name of interface attached to Internet.
+iif="bridge0"       # interface name of interface attached to LAN.
+ks="keep-state"     # Laziness
+
+# Create the NAT redirect rules.
+ipfw -q nat 1 config if $pif unreg_only reset \
+                           redirect_port tcp 192.168.2.100:80 80 \
+			   redirect_port tcp 192.168.2.100:995 995 \
+			   redirect_port tcp 192.168.2.1:222 222
+
+# Allow anything within the LAN -- the interface with heaviest traffic shall come first.
+$cmd 10 allow ip from any to any via $iif
+$cmd 20 allow ip from any to any via lo0
+
+# Catch spoofing from outside
+$cmd 90 deny ip from any to any not antispoof in
+
+# NAT rule for incomming packets
+$cmd 100 nat 1 ip from any to any via $pif in
+$cmd 101 check-state
+
+# Allow access to NAT redirected services listening on a LAN interface behind the NAT
+$cmd 201 skipto 10000 tcp from any to any 80 via $pif in setup keep-state
+$cmd 202 skipto 10000 tcp from any to any 995 via $pif in keep-state
+$cmd 203 skipto 10000 tcp from any to any 222 via $pif in keep-state
+
+# Rules for outgoing traffic -- allow everything that is not explicitely denied
+$cmd 1000 deny ip from not me to any 25,53 via $pif out
+
+# Allow all other outgoing connections
+$cmd 2000 skipto 10000 tcp from any to any via $pif out setup keep-state
+$cmd 2010 skipto 10000 udp from any to any via $pif out keep-state
+
+# Rules for incomming traffic -- deny everything that is not explicitely allowed
+$cmd 5000 allow tcp from any to me 25,80,222,443,587,993,995 via $pif in setup keep-state
+
+# Catch tcp/udp packets, but don't touch gre, esp, icmp traffic
+$cmd 9998 deny tcp from any to any via $pif
+$cmd 9999 deny udp from any to any via $pif
+
+# NAT rule for outgoing packets
+$cmd 10000 nat 1 ip from any to any via $pif out
+
+# Allow anything else -- just in case ipfw has not been configured as open firewall
+$cmd 65534 allow ip from any to any
