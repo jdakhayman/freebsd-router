@@ -1,51 +1,51 @@
 #!/bin/sh
-# Flush out the list before we begin.
-ipfw -q -f flush
 
 # Set rules command prefix
 cmd="ipfw -q add"
-extif="re1"          # interface name of interface attached to Internet.
+extif="igb0"         # interface name of interface attached to Internet.
 intif="bridge0"      # interface name of interface attached to LAN.
 ks="keep-state"      # Laziness
 
-# Create the NAT redirect rules.
+/sbin/ipfw -q flush
+/sbin/ipfw -q table all flush
 ipfw -q nat 1 config if $extif unreg_only reset \
-                     redirect_port tcp 192.168.2.100:80 80 \
-		     redirect_port tcp 192.168.2.100:995 995 \
-		     redirect_port tcp 192.168.2.1:222 222
+                     redirect_port tcp 192.168.4.120:16127 16127 \
+					 redirect_port tcp 192.168.4.125:16128 16128
+		             
 
-# Allow anything within the LAN -- the interface with heaviest traffic shall come first.
+# Allow anything within the LAN - interface with heaviest traffic shall come first.
 $cmd 10 allow ip from any to any via $intif
 $cmd 20 allow ip from any to any via lo0
 
-# Catch spoofing from outside
-$cmd 90 deny ip from any to any not antispoof in
+# Catch spoofing from outside.
+$cmd 70 deny ip from any to any not antispoof via $extif
 
-# NAT rule for incomming packets
-$cmd 100 nat 1 ip from any to any via $extif in
+# NAT rule for incoming packets - IPv4 only, IPv6 does not work with NAT.
+$cmd 100 nat 1 ip4 from any to any in recv $extif
 $cmd 101 check-state
 
-# Allow access to NAT redirected services listening on a LAN interface behind the NAT
-$cmd 201 skipto 10000 tcp from any to any 80 via $extif in setup keep-state
-$cmd 202 skipto 10000 tcp from any to any 995 via $extif in keep-state
-$cmd 203 skipto 10000 tcp from any to any 222 via $extif in keep-state
+# Rules for outgoing traffic - allow everything that is not explicitely denied.
+# $cmd 1000 deny ip from not me to any 25,53 out xmit $extif
+# $cmd 1001 deny ip from any to any 5353 out xmit $extif
 
-# Rules for outgoing traffic -- allow everything that is not explicitely denied
-$cmd 1000 deny ip from not me to any 25,53 via $extif out
+# Allow all other outgoing connections, i.e. skip processing to the outbound NAT rule #10000
+$cmd 2000 skipto 10000 tcp from any to any out xmit $extif setup $ks
+$cmd 2001 skipto 10000 udp from any to any out xmit $extif $ks
 
-# Allow all other outgoing connections
-$cmd 2000 skipto 10000 tcp from any to any via $extif out setup keep-state
-$cmd 2010 skipto 10000 udp from any to any via $extif out keep-state
+# Rules for incoming traffic - deny everything that is not explicitely allowed.
+$cmd 5000 allow tcp from any to me 22,25,80,587,993,995,16130 in recv $extif setup $ks
+$cmd 5001 allow udp from any to me 500,4500 in recv $extif $ks
 
-# Rules for incomming traffic -- deny everything that is not explicitely allowed
-$cmd 5000 allow tcp from any to me 25,80,222,443,587,993,995 via $extif in setup keep-state
+# Rules for allowing packets to services which are listening on a LAN interface behind the NAT
+$cmd 6000 skipto 10000 tcp from any to any 16127 in recv $extif setup $ks
+$cmd 6001 skipto 10000 tcp from any to any 16128 in recv $extif $ks
 
-# Catch tcp/udp packets, but don't touch gre, esp, icmp traffic
+# Catch any other tcp/udp packet, but don't touch gre, esp, icmp, etc...
 $cmd 9998 deny tcp from any to any via $extif
 $cmd 9999 deny udp from any to any via $extif
 
-# NAT rule for outgoing packets
-$cmd 10000 nat 1 ip from any to any via $extif out
+# NAT rule for outgoing packets.
+$cmd 10000 nat 1 ip4 from any to any out xmit $extif
 
-# Allow anything else -- just in case ipfw has not been configured as open firewall
+# Allow anything else - just in case ipfw is not configured as open firewall.
 $cmd 65534 allow ip from any to any
