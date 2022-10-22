@@ -35,9 +35,9 @@ $cmd 1001 deny ip from any to any 5353 out xmit $extif
 $cmd 2000 skipto 10000 tcp from any to any out xmit $extif setup $ks
 $cmd 2001 skipto 10000 udp from any to any out xmit $extif $ks
 
-# Rules for incoming traffic - deny everything that is not explicitely allowed.
-$cmd 5000 allow tcp from any to me 80,443 in recv $extif setup $ks
-$cmd 5001 allow udp from any to me 500,4500 in recv $extif $ks
+# Rules for incoming traffic to host machine - deny everything that is not explicitely allowed.
+# This rule lets ssh in on non stardard port for this host. 
+#$cmd 5000 allow tcp from any to me (your port to ssh here) in recv $extif setup $ks
 
 # Rules for allowing packets to services which are listening on a LAN interface behind the NAT
 $cmd 6000 skipto 10000 tcp from any to any 80 in recv $extif setup $ks
